@@ -7,31 +7,17 @@ import urllib.parse
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(
-    page_title="Sales & Stock Intelligence Tool",
-    layout="wide"
-)
-
+st.set_page_config(page_title="Sales & Stock Intelligence Tool", layout="wide")
 st.title("📊 Sales & Stock Intelligence Tool")
 
 # =========================
-# SIDEBAR - UPLOAD
+# UPLOAD
 # =========================
 st.sidebar.header("📂 Upload Reports")
 
-report1 = st.sidebar.file_uploader(
-    "Report 1 (Stock)",
-    type=["xlsx"]
-)
+report1 = st.sidebar.file_uploader("Report 1 (Stock)", type=["xlsx"])
+report129 = st.sidebar.file_uploader("Report 129 (Sales)", type=["xlsx"])
 
-report129 = st.sidebar.file_uploader(
-    "Report 129 (Sales)",
-    type=["xlsx"]
-)
-
-# =========================
-# MAIN PROCESS
-# =========================
 if report1 and report129:
 
     # =========================
@@ -47,32 +33,53 @@ if report1 and report129:
     df_sales.columns = df_sales.columns.str.strip()
 
     # =========================
-    # RENAME COLUMNS
+    # DEBUG COLUMNS
     # =========================
-    df_stock.rename(
-        columns={
-            "Specialcode1": "SpecialCode",
-            "Merch Group": "MerchGroup",
-            "Merch Sub Group": "SubGroup",
-            "Line": "Line",
-            "Total Stock": "StockQty",
-            "YasakliMi": "Blocked",
-            "Buyer Group": "BuyerGroup",
-            "UrunKlasman": "Classification",
-            "EtiketTip": "EtiketTip"
-        },
-        inplace=True
-    )
+    st.write("Detected Sales Columns:")
+    st.write(df_sales.columns.tolist())
 
-    df_sales.rename(
-        columns={
-            "Special Code": "SpecialCode",
-            "Quantity": "SalesQty",
-            "Price": "Price",
-            "RenkKodu": "Color"
-        },
-        inplace=True
-    )
+    # =========================
+    # AUTO DETECT COLOR COLUMN
+    # =========================
+    possible_color_cols = [
+        "RenkKodu",
+        "Renk Kodu",
+        "Color",
+        "Colour"
+    ]
+
+    found_color = None
+
+    for c in possible_color_cols:
+        if c in df_sales.columns:
+            found_color = c
+            break
+
+    if found_color:
+        df_sales.rename(columns={found_color: "Color"}, inplace=True)
+    else:
+        df_sales["Color"] = ""
+
+    # =========================
+    # RENAME
+    # =========================
+    df_stock.rename(columns={
+        "Specialcode1": "SpecialCode",
+        "Merch Group": "MerchGroup",
+        "Merch Sub Group": "SubGroup",
+        "Line": "Line",
+        "Total Stock": "StockQty",
+        "YasakliMi": "Blocked",
+        "Buyer Group": "BuyerGroup",
+        "UrunKlasman": "Classification",
+        "EtiketTip": "EtiketTip"
+    }, inplace=True)
+
+    df_sales.rename(columns={
+        "Special Code": "SpecialCode",
+        "Quantity": "SalesQty",
+        "Price": "Price"
+    }, inplace=True)
 
     # =========================
     # STOCK AGGREGATION
@@ -88,18 +95,18 @@ if report1 and report129:
         "StockQty": "sum"
     }
 
-    # Keep only existing columns
+    # =========================
+    # KEEP ONLY EXISTING COLUMNS
+    # =========================
     agg_dict = {
         k: v
         for k, v in agg_dict.items()
         if k in df_stock.columns
     }
 
-    # Add Cash column if exists
     if "Cash" in df_stock.columns:
         agg_dict["Cash"] = "mean"
 
-    # Aggregate stock
     df_stock = (
         df_stock
         .groupby("SpecialCode")
@@ -108,7 +115,7 @@ if report1 and report129:
     )
 
     # =========================
-    # SALES PROCESSING
+    # SALES
     # =========================
     df_sales["Date"] = pd.to_datetime(
         df_sales["Date"],
@@ -117,23 +124,21 @@ if report1 and report129:
 
     today = pd.to_datetime(datetime.today())
 
-    # Last 7 Days
     df_sales_7d = df_sales[
-        df_sales["Date"] >= (today - pd.Timedelta(days=7))
+        df_sales["Date"] >= (
+            today - pd.Timedelta(days=7)
+        )
     ]
 
-    # Keep positive sales only
     df_sales_7d = df_sales_7d[
         df_sales_7d["SalesQty"] > 0
     ]
 
-    # Revenue
     df_sales_7d["Revenue"] = (
         df_sales_7d["SalesQty"] *
         df_sales_7d["Price"]
     )
 
-    # Group Sales
     sales_group = (
         df_sales_7d
         .groupby("SpecialCode")
@@ -147,21 +152,30 @@ if report1 and report129:
     # =========================
     # COLOR EXTRACTION
     # =========================
-    color_map = (
-        df_sales
-        .groupby("SpecialCode")["Color"]
-        .agg(
-            lambda x: (
-                x.mode()[0]
-                if not x.mode().empty
-                else ""
+    if "Color" in df_sales.columns:
+
+        color_map = (
+            df_sales
+            .groupby("SpecialCode")["Color"]
+            .agg(
+                lambda x: (
+                    x.mode()[0]
+                    if not x.mode().empty
+                    else ""
+                )
             )
+            .reset_index()
         )
-        .reset_index()
-    )
+
+    else:
+
+        color_map = pd.DataFrame({
+            "SpecialCode": df_stock["SpecialCode"],
+            "Color": ""
+        })
 
     # =========================
-    # MERGE DATA
+    # MERGE
     # =========================
     df = pd.merge(
         df_stock,
@@ -177,24 +191,19 @@ if report1 and report129:
         how="left"
     )
 
-    # Fill missing values
-    df.fillna(
-        {
-            "SalesQty_7D": 0,
-            "Revenue": 0
-        },
-        inplace=True
-    )
+    df.fillna({
+        "SalesQty_7D": 0,
+        "Revenue": 0
+    }, inplace=True)
 
     # =========================
-    # KPI CALCULATIONS
+    # KPIs
     # =========================
     df["Stock Cover"] = (
         df["StockQty"] /
         (df["SalesQty_7D"] / 7 + 0.01)
     )
 
-    # Seller Tag
     def seller_tag(qty):
 
         if qty >= 20:
@@ -208,14 +217,13 @@ if report1 and report129:
 
     df["SellerTag"] = df["SalesQty_7D"].apply(seller_tag)
 
-    # Ranking
     df["Rank"] = df["SalesQty_7D"].rank(
         method="dense",
         ascending=False
     )
 
     # =========================
-    # FILTERS
+    # FILTER
     # =========================
     merch_filter = st.selectbox(
         "Filter by Merch Group",
@@ -234,7 +242,7 @@ if report1 and report129:
         ]
 
     # =========================
-    # ANALYSIS FUNCTION
+    # ANALYSIS
     # =========================
     def build_analysis(group_cols, title):
 
@@ -264,9 +272,6 @@ if report1 and report129:
             hide_index=True
         )
 
-    # =========================
-    # ANALYSIS TABLES
-    # =========================
     build_analysis(
         ["MerchGroup", "SubGroup"],
         "📊 Analysis: Merch+SubGroup"
@@ -285,7 +290,7 @@ if report1 and report129:
     )
 
     # =========================
-    # DISPLAY COLUMNS
+    # TOP / WORST TABLES
     # =========================
     cols_display = [
         "SpecialCode",
@@ -299,9 +304,6 @@ if report1 and report129:
         "Stock Cover"
     ]
 
-    # =========================
-    # TOP SELLERS
-    # =========================
     st.subheader("📊 Top 10 Best Sellers")
 
     st.dataframe(
@@ -313,9 +315,6 @@ if report1 and report129:
         hide_index=True
     )
 
-    # =========================
-    # WORST SELLERS
-    # =========================
     st.subheader("📉 Top 10 Worst Sellers")
 
     st.dataframe(
@@ -338,9 +337,6 @@ if report1 and report129:
         df["SpecialCode"].unique()
     )
 
-    # =========================
-    # PRODUCT DETAILS
-    # =========================
     if selected_product:
 
         p = df[
@@ -349,9 +345,6 @@ if report1 and report129:
 
         clean_code = str(selected_product).replace(" ", "")
 
-        # =========================
-        # SUBGROUP MAPPING
-        # =========================
         sub_map = {
             "BG": "Women",
             "BU": "Men",
@@ -368,21 +361,12 @@ if report1 and report129:
 
         price = p["Cash"] if "Cash" in p else 0
 
-        # =========================
-        # LAYOUT
-        # =========================
         col1, col2 = st.columns(2)
 
-        # =========================
-        # LEFT SIDE
-        # =========================
         with col1:
 
             st.write(f"Code: {selected_product}")
-
-            st.write(
-                f"Price: {round(price, 2)}"
-            )
+            st.write(f"Price: {round(price,2)}")
 
             st.info(f"👤 Target: {target}")
 
@@ -390,29 +374,18 @@ if report1 and report129:
                 f"Performance: {p['SellerTag']}"
             )
 
-            st.info(
-                f"📦 Stock: {p['StockQty']}"
-            )
+            st.info(f"📦 Stock: {p['StockQty']}")
+            st.info(f"📈 Sales 7D: {p['SalesQty_7D']}")
+            st.info(f"💰 Revenue: {round(p['Revenue'],2)}")
 
             st.info(
-                f"📈 Sales 7D: {p['SalesQty_7D']}"
-            )
-
-            st.info(
-                f"💰 Revenue: {round(p['Revenue'], 2)}"
-            )
-
-            st.info(
-                f"📊 Stock Cover: {round(p['Stock Cover'], 2)}"
+                f"📊 Stock Cover: {round(p['Stock Cover'],2)}"
             )
 
             st.info(
                 f"🏆 Rank: #{int(p['Rank'])}"
             )
 
-            # =========================
-            # LCW PRODUCT LINK
-            # =========================
             lcw_url = (
                 f"https://www.lcwaikiki.fr/recherche?q={clean_code}"
             )
@@ -422,9 +395,6 @@ if report1 and report129:
                 lcw_url
             )
 
-        # =========================
-        # RIGHT SIDE
-        # =========================
         with col2:
 
             query = (
@@ -477,7 +447,7 @@ Classification: {p['Classification']}
 Price: {price}
 Sales: {p['SalesQty_7D']}
 Stock: {p['StockQty']}
-Stock Cover: {round(p['Stock Cover'], 2)}
+Stock Cover: {round(p['Stock Cover'],2)}
 Performance: {p['SellerTag']}
 Rank: {int(p['Rank'])}
 
@@ -517,15 +487,11 @@ Keep concise and business-oriented.
                 )
 
         else:
+
             st.info(
                 "⚠️ Add OPENAI_API_KEY to enable AI"
             )
 
-# =========================
-# NO FILES
-# =========================
 else:
 
-    st.info(
-        "⬅️ Upload both reports to start"
-    )
+    st.info("⬅️ Upload both reports to start")
