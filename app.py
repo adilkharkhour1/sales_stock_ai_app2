@@ -32,13 +32,7 @@ if report1 and report129:
     df_stock.columns = df_stock.columns.str.strip()
     df_sales.columns = df_sales.columns.str.strip()
 
-    # =========================
-    # DEBUG COLUMNS
-    # =========================
-    st.write("Detected Sales Columns:")
-    st.write(df_sales.columns.tolist())
-
-    # =========================
+    # ========================
     # AUTO DETECT COLOR COLUMN
     # =========================
     possible_color_cols = [
